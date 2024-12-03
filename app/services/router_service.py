@@ -1,20 +1,29 @@
 from app.models.router import Router, Interface
 
-# Datos de ejemplo para usuarios
-users_router1 = [
-    {"username": "admin", "permissions": "read-write"},
-    {"username": "guest", "permissions": "read-only"},
-]
+# Lista de enrutadores detectados
+routers = []
 
-users_router2 = [
-    {"username": "operator", "permissions": "read-write"},
-]
+# Diccionario para almacenar usuarios por enrutador
+users_per_router = {}
 
-# Enrutadores con datos de ejemplo
-routers = [
-    Router("router1", "10.0.0.1", "192.168.1.1", "Core", "Cisco", "IOS", ["eth0", "eth1"], None, users_router1),
-    Router("router2", "10.0.0.2", "192.168.1.2", "Edge", "Juniper", "JunOS", ["eth0"], None, users_router2),
-]
+# --- Excepciones ---
+class RouterNotFoundError(Exception):
+    """Excepción personalizada para manejar cuando un enrutador no es encontrado."""
+    def __init__(self, hostname):
+        self.message = f"ERROR 404: Router '{hostname}' not found"
+        super().__init__(self.message)
+
+class InterfaceNotFoundError(Exception):
+    """Excepción personalizada para manejar cuando una interfaz no es encontrada."""
+    def __init__(self, interface_name):
+        self.message = f"ERROR 404: Interface '{interface_name}' not found"
+        super().__init__(self.message)
+
+class UserNotFoundError(Exception):
+    """Excepción personalizada para manejar cuando un usuario no es encontrado en un enrutador."""
+    def __init__(self, username, hostname):
+        self.message = f"ERROR 404: User '{username}' not found in router '{hostname}'"
+        super().__init__(self.message)
 
 # --- Funciones de Gestión de Enrutadores ---
 def get_all_routers():
@@ -26,14 +35,14 @@ def get_router_by_hostname(hostname):
     for router in routers:
         if router.hostname == hostname:
             return router.to_dict()
-    return None
+    raise RouterNotFoundError(hostname)
 
 def get_interfaces_by_router(hostname):
     """Devuelve las interfaces de un enrutador específico."""
     for router in routers:
         if router.hostname == hostname:
             return [interface.to_dict() for interface in router.interfaces]
-    return None
+    raise RouterNotFoundError(hostname)
 
 # --- Funciones de Gestión de Usuarios por Enrutador ---
 def get_users_by_router(hostname):
@@ -41,7 +50,7 @@ def get_users_by_router(hostname):
     for router in routers:
         if router.hostname == hostname:
             return router.users
-    return None
+    raise RouterNotFoundError(hostname)
 
 def add_user_to_router(hostname, username, permissions):
     """Agrega un nuevo usuario a un enrutador específico."""
@@ -50,7 +59,7 @@ def add_user_to_router(hostname, username, permissions):
             user = {"username": username, "permissions": permissions}
             router.users.append(user)
             return user
-    return None
+    raise RouterNotFoundError(hostname)
 
 def update_user_in_router(hostname, username, permissions):
     """Actualiza un usuario en un enrutador específico."""
@@ -60,12 +69,21 @@ def update_user_in_router(hostname, username, permissions):
                 if user["username"] == username:
                     user["permissions"] = permissions
                     return user
-    return None
+            raise UserNotFoundError(hostname)
+    raise RouterNotFoundError(hostname)
 
 def delete_user_from_router(hostname, username):
     """Elimina un usuario de un enrutador específico."""
+    #for router in routers:
+    #    if router.hostname == hostname:
+    #        router.users = [user for user in router.users if user["username"] != username]
+    #        return {"message": f"User '{username}' deleted from router '{hostname}'"}
+    
     for router in routers:
         if router.hostname == hostname:
-            router.users = [user for user in router.users if user["username"] != username]
-            return {"message": f"User '{username}' deleted from router '{hostname}'"}
-    return None
+            for user in router.users:
+                if user["username"] == username:
+                    router.users = [u for u in router.users if u["username"] != username]
+                    return {"message": f"User '{username}' deleted from router '{hostname}'"}
+            raise UserNotFoundError(username, hostname)
+    raise RouterNotFoundError(hostname)

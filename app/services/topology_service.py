@@ -20,7 +20,6 @@ daemon_interval = 300  # Intervalo por defecto: 5 minutos (en segundos)
 daemon_thread = None  # Hilo del demonio
 stop_event = Event()  # Evento para controlar la detención del demonio
 
-
 def scan_network(network_range):
     """
     Escanea la red para detectar dispositivos activos.
@@ -32,14 +31,30 @@ def scan_network(network_range):
     try:
         nm.scan(hosts=network_range, arguments='-sn')  # Escaneo tipo ping
         devices = []
+        connections = []
         for host in nm.all_hosts():
-            devices.append({
+            device_info = {
                 "ip": host,
                 "hostname": nm[host].hostname(),
                 "state": nm[host].state()
-            })
+            }
+        
+        # Detectar conexiones: asumimos que si los enrutadores están en el mismo rango, están conectados
+        for other_host in nm.all_hosts():
+            if host != other_host:
+                # Verifica si los enrutadores están en la misma subred (esto puede depender de la lógica de red)
+                # Ejemplo simplificado: si están en el mismo rango de IP, asumimos que están conectados
+                connections.append({
+                    "from": host,
+                    "to": other_host
+                })
+        
         logging.debug(f"Dispositivos detectados: {devices}")
-        return devices
+        logging.debug(f"Conexiones detectadas: {connections}")
+        return {
+            "devices": devices,
+            "connections": connections
+        }
     except Exception as e:
         logging.error(f"Error al escanear la red: {str(e)}")
         return {"error": str(e)}
@@ -121,23 +136,38 @@ def set_daemon_interval(interval):
     daemon_interval = interval
     return {"message": f"Interval set to {interval} seconds"}
 
-def generate_topology_graph():
+def generate_topology_graph(network_range):
     """
     Genera un gráfico de la topología utilizando networkx.
     """
     try:
-        with open("current_topology.json", "r") as f:
-            topology = json.load(f)
+        # Llamamos a scan_network para obtener los dispositivos y sus conexiones
+        topology_data = scan_network(network_range)
 
+        # Si no hay dispositivos o hay un error
+        if "error" in topology_data:
+            logging.error(f"Error en el escaneo de red: {topology_data['error']}")
+            return None
+        
+        devices = topology_data["devices"]
+        connections = topology_data["connections"]
+
+        # Crear el grafo
         G = nx.Graph()
 
-        # Agregar nodos a la red
-        for device in topology:
+        # Agregar nodos a la red (enrutadores)
+        for device in devices:
             G.add_node(device["ip"], label=device.get("hostname", device["ip"]))
+
+        # Agregar conexiones entre los dispositivos
+        for connection in connections:
+            G.add_edge(connection["from"], connection["to"])
 
         # Dibujar la red
         pos = nx.spring_layout(G)
         nx.draw(G, pos, with_labels=True, node_size=500, node_color="lightblue")
+
+        # Dibujar las etiquetas con los nombres de los nodos
         labels = nx.get_node_attributes(G, 'label')
         nx.draw_networkx_labels(G, pos, labels)
 
@@ -147,7 +177,10 @@ def generate_topology_graph():
         graph_path = os.path.join(output_dir, "topology_graph.png")
         plt.savefig(graph_path)
         plt.close()
+
+        logging.info(f"Gráfico de la topología guardado en: {graph_path}")
         return graph_path
+    
     except Exception as e:
         logging.error(f"Error al generar el gráfico de topología: {str(e)}")
         return None
